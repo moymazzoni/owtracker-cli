@@ -1,0 +1,8 @@
+# Ignore files below:
+settings.ini
+storage/accounts.json
+storage/ow_season_cache.json
+.venv/
+__pycache__/
+*.pyc
+.idea/
