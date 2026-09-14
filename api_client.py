@@ -130,19 +130,3 @@ class OverfastClient:
             'imported_at': int(time.time()),
             'last_updated_at': summary.get('last_updated_at'),
         }
-
-
-if __name__ == '__main__':
-    """ Quick test shit. """
-    client = OverfastClient()
-    account_list: list[str] = ['Froggo#11712', 'Froggo#1712', 'anju#11191',
-                               "Hanamaru#21925"]
-
-    for account in account_list:
-        try:
-            print(client.get_player_info(account))
-        except Exception as error_msg:
-            print(f'Error: {error_msg}')
-
-    print(client.get_known_last_season('PocketUforsr#1270'))
-    print(client.get_known_last_season_ranks('PocketUforsr#1270'))

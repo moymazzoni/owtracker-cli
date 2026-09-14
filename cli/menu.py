@@ -6,6 +6,7 @@ from cli.errors import (
     AccountNoAttributesError,
     NoOptionsInMenuError,
     AccountDoesntExist,
+    RankDivisionError,
     OutOfRangeError,
     IncorrectValue,
     AccountError,
@@ -26,17 +27,15 @@ import sys
 
 EDIT_SPACING: int = 16
 QUIT_OPTIONS: list[str] = ['quit', 'q']
+SELECT_ACCOUNT: str = 'Enter battletag/username for lookup: '
 FORCE_QUIT: str = cli_msg(text='Returning to main menu...', msg_type='warning')
 QUIT_MSG: str = cli_msg(text='User has requested to quit.', msg_type='warning')
 
-NONEDITABLE_FIELDS: frozenset[str] = frozenset({
-    'ranks', 'rank_history', 'imported_at', 'last_updated_at'
-})  # Add custom menu for rank & rank history edits.
-
+#! ADD A MENU TO MODIFY RANKS AND RANK_HISTORY (WRITE "DIAMOND 1" AND IT CONVERTS IT).
+NONEDITABLE_FIELDS: frozenset[str] = frozenset({'ranks', 'rank_history', 'imported_at', 'last_updated_at'})
 
 def menu_loop(config) -> None:
     service = AccountService(config.db_directory)
-    stay_in_loop: bool = True
     menu_options: list = []
     menu_len = getattr(config, 'display_len')
     display_accounts_double_wide = getattr(config, 'display_accounts_double_wide')
@@ -45,19 +44,14 @@ def menu_loop(config) -> None:
     hide_emails = getattr(config, 'hide_emails')
     hide_passwords = getattr(config, 'hide_passwords')
     current_season = getattr(config, 'current_season')
-
-    if auto_update_ranks:
-        cmd_update_ranks(service, current_season)
+    delete_warning_prompt = getattr(config, 'delete_warning_prompt')
 
     options_dict: dict[int, tuple[str, Callable[..., None]]] = {
-        1: ('Get Account', lambda: cmd_get_account(
-            service, menu_len, credential_get, hide_emails, hide_passwords)),
+        1: ('Get Account', lambda: cmd_get_account(service, menu_len, credential_get, hide_emails, hide_passwords)),
         2: ('Add Account', lambda: cmd_add_account(service, current_season)),
-        3: ('View Accounts', lambda: cmd_display_accounts(
-            service,menu_len,display_accounts_double_wide)),
-        4: ('Edit account', lambda: cmd_edit_accounts(
-            service, menu_len, hide_emails, hide_passwords)),
-        5: ('Delete account', lambda: cmd_delete_account(service, menu_len)),
+        3: ('View Accounts', lambda: cmd_display_accounts(service, menu_len, display_accounts_double_wide)),
+        4: ('Edit account', lambda: cmd_edit_accounts(service, menu_len, hide_emails, hide_passwords)),
+        5: ('Delete account', lambda: cmd_delete_account(service, menu_len, delete_warning_prompt)),
         6: ('Update Ranks', lambda: cmd_update_ranks(service, current_season)),
         7: ('Rank History', lambda: cmd_rank_history(service, menu_len)),
         8: ('Range Detection', lambda: cmd_range_detection(service, menu_len)),
@@ -67,9 +61,13 @@ def menu_loop(config) -> None:
     for func_label, _ in options_dict.values():
         menu_options.append(func_label)
 
+    if auto_update_ranks:
+        cmd_update_ranks(service, current_season)
+
+    stay_in_loop: bool = True
     while stay_in_loop:
         try:
-            if not len(menu_options):
+            if not len(menu_options):  # should never raise unless someone fucks with the menu options.
                 raise NoOptionsInMenuError
 
             print_menu_parts(
@@ -103,17 +101,23 @@ def menu_loop(config) -> None:
         except OutOfRangeError as e:
             print(cli_msg(text=str(e), msg_type='error'))
 
+# -------------------------------------------------------------------------------------------------------------------- #
 
 def cmd_get_account(service, menu_len, credential_ini, hide_emails, hide_passwords) -> None:
-    player_id = read_userinput(prompt=cli_msg(
-        text='Enter battletag/username: ',
-        msg_type='question',
-    ))
-    if valid_exit_condition(player_id):
-        return
+    """
+    Go through the entire database and return the matching account's credentials depending on what the user selected,
+    that being ``credential_ini``. README.md has more information regarding this, but it will auto select whatever
+    option ``credential_ini`` is set to and begin queueing data to be pasted using the clipboard.
 
-    player_id = _wide_search(player_id, service, menu_len)
-    if valid_exit_condition(player_id):
+    :param service: Instance of the class AccountService in account_service.py.
+    :param menu_len: User requested (from settings.ini) menu length, used to display data.
+    :param credential_ini: User requested (from settings.ini) option, used to auto select which items get copied into
+        the clipboard automatically.
+    :param hide_emails: User requested (from settings.ini) option, allowing visibility of emails or not.
+    :param hide_passwords: User requested (from settings.ini) option, allowing visibility of passwords or not.
+    """
+    player_id = _prompt_for_player_id(service, menu_len)
+    if player_id is None:  # force quit (no input) or user quit (just Q/Quit).
         return
 
     try:
@@ -121,8 +125,7 @@ def cmd_get_account(service, menu_len, credential_ini, hide_emails, hide_passwor
 
         if credential_ini == 'ask':
             credential_ini = read_userinput(prompt=cli_msg(
-                text='Which credentials would you like to copy? '
-                     'Options: "all", "tag" or "username", "email", '
+                text='Which credentials would you like to copy? Options: "all", "tag" or "username", "email", '
                      '"password", "ep" (email and password): ',
                 msg_type='question'))
             if valid_exit_condition(credential_ini):
@@ -134,8 +137,7 @@ def cmd_get_account(service, menu_len, credential_ini, hide_emails, hide_passwor
                 raise AccountAttributeInvalidValueError(
                     player_id=player_id, attribute=key)
             if key not in NONEDITABLE_FIELDS:
-                if (key == 'email' and hide_emails or key ==
-                        'password' and hide_passwords):
+                if (key == 'email' and hide_emails and value) or (key == 'password' and hide_passwords and value):
                     value = '*' * len(value)
                 credentials_items.append(f'{key:{EDIT_SPACING}}: {value}')
 
@@ -154,10 +156,7 @@ def cmd_get_account(service, menu_len, credential_ini, hide_emails, hide_passwor
 
 
 def cmd_add_account(service, current_season) -> None:
-    player_id = read_userinput(prompt=cli_msg(
-        text='Enter battletag/username: ',
-        msg_type='question',
-    ))
+    player_id = read_userinput(prompt=cli_msg(text=SELECT_ACCOUNT, msg_type='question'))
     if valid_exit_condition(player_id):
         return
 
@@ -166,18 +165,12 @@ def cmd_add_account(service, current_season) -> None:
             service.create_account,
             player_id,
             current_season,
-            message=cli_msg(
-                text=f'Fetching account: "{player_id}".',
-                msg_type='load',
-            ),
+            message=cli_msg(text=f'Fetching account: "{player_id}".', msg_type='load'),
         )
     except AccountError as e:
         print(cli_msg(text=str(e), msg_type='error'))
     else:
-        print(cli_msg(
-            text=f'Account "{player_id}" was successfully added.',
-            msg_type='ok',
-        ))
+        print(cli_msg(text=f'Account "{player_id}" was successfully added.', msg_type='ok'))
 
 
 def cmd_display_accounts(service, menu_len, display_accounts_double_wide) -> None:
@@ -189,9 +182,7 @@ def cmd_display_accounts(service, menu_len, display_accounts_double_wide) -> Non
             account_ranks = service.account_attributes(account)
 
             if not account_ranks['ranks'].items():
-                raise AccountAttributeInvalidValueError(
-                    player_id=account, attribute='ranks'
-                )
+                raise AccountAttributeInvalidValueError(player_id=account, attribute='ranks')
 
             rank_status = []
             for _ in account_ranks['ranks']:
@@ -216,15 +207,18 @@ def cmd_display_accounts(service, menu_len, display_accounts_double_wide) -> Non
 
 
 def cmd_edit_accounts(service, menu_len, hide_emails, hide_passwords) -> None:
-    player_id = read_userinput(prompt=cli_msg(
-        text='Enter battletag/username: ',
-        msg_type='question',
-    ))
-    if valid_exit_condition(player_id):
-        return
+    """
+        Allows the user to edit an account's attributes such as email, password, notes, etc. Certain attributes have
+        been limited from being modified, ``NONEDITABLE_FIELDS``.
 
-    player_id = _wide_search(player_id, service, menu_len)
-    if valid_exit_condition(player_id):
+        :param service: Instance of the class AccountService in account_service.py.
+        :param menu_len: User requested (from settings.ini) menu length, used to display data.
+        :param hide_emails: User requested (from settings.ini) option, used to enable or disable the display of emails.
+        :param hide_passwords: User requested (from settings.ini) option, used to enable or disable the display of
+            passwords.
+        """
+    player_id = _prompt_for_player_id(service, menu_len)
+    if player_id is None:
         return
 
     try:
@@ -236,8 +230,7 @@ def cmd_edit_accounts(service, menu_len, hide_emails, hide_passwords) -> None:
             display_content: list = []
             for key, value in attr_dict.items():
                 if key not in NONEDITABLE_FIELDS:
-                    if (key == 'email' and hide_emails and value or key ==
-                            'password' and hide_passwords and value):
+                    if (key == 'email' and hide_emails and value) or (key == 'password' and hide_passwords and value):
                         value = '*' * len(value)
                     display_content.append(f'{key:{EDIT_SPACING}}: {value}')
 
@@ -250,10 +243,7 @@ def cmd_edit_accounts(service, menu_len, hide_emails, hide_passwords) -> None:
             )
 
             target_attr = read_userinput(
-                prompt=cli_msg(
-                    text='Enter attribute: ',
-                    msg_type='question',
-                ),
+                prompt=cli_msg(text='Enter attribute: ', msg_type='question'),
                 whitelist=list(attr_dict),
                 whitelist_error='Attribute given is not valid: ',
             )
@@ -262,10 +252,7 @@ def cmd_edit_accounts(service, menu_len, hide_emails, hide_passwords) -> None:
             if target_attr in NONEDITABLE_FIELDS:
                 raise AccountInaccessibleAttribute(attribute=target_attr)
 
-            new_attribute = read_userinput(prompt=cli_msg(
-                text='Enter new attribute data: ',
-                msg_type='question'
-            ))
+            new_attribute = read_userinput(prompt=cli_msg(text='Enter new attribute data: ', msg_type='question'))
             if valid_exit_condition(new_attribute):
                 return
             if not _account_exists(player_id, service):
@@ -275,74 +262,76 @@ def cmd_edit_accounts(service, menu_len, hide_emails, hide_passwords) -> None:
                 if target_attr == 'player_id':
                     service.modify_account_name(player_id, new_attribute)
                     print(cli_msg(
-                        text=f'Account attribute "{target_attr}" has been updated '
-                             f'to "{new_attribute}".',
+                        text=f'Account attribute "{target_attr}" has been updated to "{new_attribute}".',
                         msg_type='ok',
                     ))
                     return
                 else:
                     service.modify_account(player_id, target_attr, new_attribute)
                     print(cli_msg(
-                        text=f'Account attribute "{target_attr}" has been updated '
-                             f'to "{new_attribute}".',
+                        text=f'Account attribute "{target_attr}" has been updated to "{new_attribute}".',
                         msg_type='ok',
                     ))
     except AccountError as e:
         print(cli_msg(text=str(e), msg_type='error'))
 
 
-def cmd_delete_account(service, menu_len) -> None:
-    player_id = read_userinput(prompt=cli_msg(
-        text='Enter battletag/username: ',
-        msg_type='question'
-    ))
-    if valid_exit_condition(player_id):
-        return
+def cmd_delete_account(service, menu_len, delete_warning_prompt) -> None:
+    """
+    Allows the user to delete any account existing in the database.
 
-    player_id = _wide_search(player_id, service, menu_len)
-    if valid_exit_condition(player_id):
+    :param service: Instance of the class AccountService in account_service.py.
+    :param menu_len: User requested (from settings.ini) menu length, used to display data.
+    :param delete_warning_prompt: User requested (from settings.ini) warning prompt for deleting accounts,
+        either set as ``True`` or ``False``.
+    """
+    player_id = _prompt_for_player_id(service, menu_len)
+    if player_id is None:
         return
 
     try:
         if not _account_exists(player_id, service):
             raise AccountDoesntExist(player_id=player_id)
 
-        confirm_delete = read_userinput(prompt=cli_msg(
-            text=f'Are you certain you want to delete account "{player_id}"? '
-                 f'(y/N): ',
-            msg_type='warning',
-        ))
-        if confirm_delete.lower() == "y":
-            service.remove_account(player_id)
+        if delete_warning_prompt:
+            confirm_delete = read_userinput(
+                prompt=cli_msg(
+                    text=f'Are you certain you want to delete account "{player_id}"? (y/N): ',
+                    msg_type='warning'
+                ))
+            if confirm_delete.lower() == "y":
+                service.remove_account(player_id)
+            else:
+                print(FORCE_QUIT)
+                return
         else:
-            print(FORCE_QUIT)
-            return
+            service.remove_account(player_id)
     except AccountError as e:
         print(cli_msg(text=str(e), msg_type='error'))
     else:
-        print(cli_msg(
-            text=f'Account "{player_id}" was successfully deleted.',
-            msg_type='ok',
-        ))
+        print(cli_msg(text=f'Account "{player_id}" was successfully deleted.', msg_type='ok'))
 
 
 def cmd_update_ranks(service, current_season) -> None:
+    """
+        Goes through and updates every account in the database with the latest ranks. If a new season has begun,
+        it will save the last known data into the account's "rank_history" attribute. If unable to update, it will be
+        displayed at the end of the account sift through. Accounts with updated changes will be bundled up into a
+        list and displayed.
+
+        :param service: Instance of the class AccountService in account_service.py.
+        :param current_season: Fetched from ow_season_scraper.py, it contains the integer for the current season (
+            based on the patch notes on the official Overwatch patch notes site).
+        """
     try:
         updated, nonupdated = run_with_spinner(
             service.update_accounts,
             current_season,
-            message=cli_msg(
-                text=f'Fetching database account\'s newest ranks...',
-                msg_type='load',
-            ),
-        )
+            message=cli_msg(text=f'Fetching database account\'s newest ranks...', msg_type='load'))
     except AccountError as e:
         print(cli_msg(text=str(e), msg_type='error'))
     else:
-        print(cli_msg(
-            text=f'Accounts in database have been sifted through...',
-            msg_type='ok',
-        ))
+        print(cli_msg(text=f'Accounts in database have been sifted through...', msg_type='ok'))
         print(cli_msg(text=updated, msg_type='ok'))
         if nonupdated:
             print(cli_msg(text=nonupdated, msg_type='warning'))
@@ -350,27 +339,20 @@ def cmd_update_ranks(service, current_season) -> None:
 
 def cmd_rank_history(service, menu_len) -> None:
     """
-    Print out every season alongside the roles and ranks of the given account.
+    Prints out a breakdown of every season with each role's division and tier for the given account.
+
+    :param service: Instance of the class AccountService in account_service.py.
+    :param menu_len: User requested (from settings.ini) menu length, used to display data.
     """
-    player_id = read_userinput(prompt=cli_msg(
-        text='Enter battletag/username: ',
-        msg_type='question'
-    ))
-
-    if valid_exit_condition(player_id):
-        return
-
-    player_id = _wide_search(player_id, service, menu_len)
-    if valid_exit_condition(player_id):
+    player_id = _prompt_for_player_id(service, menu_len)
+    if player_id is None:
         return
 
     try:
         account_information = service.account_attributes(player_id)
 
         if not account_information['rank_history']:
-            raise AccountAttributeInvalidValueError(
-                player_id=player_id, attribute='rank_history'
-            )
+            raise AccountAttributeInvalidValueError(player_id=player_id, attribute='rank_history')
 
         for season, roles in account_information['rank_history'].items():
             rank_status = [
@@ -393,109 +375,42 @@ def cmd_rank_history(service, menu_len) -> None:
     return
 
 
-def cmd_range_detection(service, menu_len) -> str | None:
+def cmd_range_detection(service, menu_len) -> None:
     """
-        Asks the user for two accounts and their roles (first account and first
-        account role then second account and secound account role),
-        does calculations to determine range, and print if they are in range
-        or not.
+    Asks the user for two accounts and their roles (first account and first account role, then second account and
+    second account role), does calculations to determine range, and prints whether they are in range or not.
 
-        :raises ValueError: Invalid division #, cancelling the detection.
-        :raises KeyError: Invalid tier, cancelling detection.
-        :raises AttributeError: Invalid use of .lower(), meaning the returned type
-            was most likely a ``None``, meaning an empty result (invalid).
-        """
+    Note:
+        ``ValueError``, ``KeyError``, ``AttributeError``, and ``AccountDoesntExist`` can all occur while resolving
+        the accounts' rank data, but they are caught and reported internally via ``cli_msg``. None of them propagate
+        to the caller.
+    """
     try:
-        player_id = read_userinput(prompt=cli_msg(
-            text='Enter first battletag/username: ',
-            msg_type='question'
-        ))
-
-        if valid_exit_condition(player_id):
+        result1 = _get_player_rank(service, menu_len)
+        if result1 is None:
             return
+        _, p1_rank = result1
 
-        player_id = _wide_search(player_id, service, menu_len)
-        if valid_exit_condition(player_id):
+        result2 = _get_player_rank(service, menu_len)
+        if result2 is None:
             return
+        _, p2_rank = result2
 
-        if not _account_exists(player_id, service):
-            raise AccountDoesntExist(player_id=player_id)
-
-        given_role = read_userinput(cli_msg(
-            text=f"{player_id}'s role? (tank, damage, support, open): ",
-            msg_type="question",
-        )).lower()
-
-        if valid_exit_condition(given_role):
-            return
-
-        player1_data = service.account_attributes(player_id)
-        player1_role = player1_data.get('ranks', {}).get(given_role, {})
-
-        if player1_role is None:
-            print(cli_msg(
-                text=f'No rank data for role "{given_role}"',
-                msg_type='error',
-            ))
-            return
-
-        player1_division = player1_role.get('division', {})
-        player1_tier = player1_role.get('tier', {})
-
-        p1_rank = service.rank_title(player1_division, player1_tier)
-        print(cli_msg(
-            text=f"Selected rank: {short_format_rank(player1_role)} | {p1_rank}"
-        ))
-
-        player_id2 = read_userinput(prompt=cli_msg(
-            text='Enter second battletag/username: ',
-            msg_type='question'
-        ))
-
-        if valid_exit_condition(player_id2):
-            return
-
-        player_id2 = _wide_search(player_id2, service, menu_len)
-        if valid_exit_condition(player_id2):
-            return
-
-        if not _account_exists(player_id2, service):
-            raise AccountDoesntExist(player_id=player_id2)
-
-        given_role2 = read_userinput(cli_msg(
-            text=f"{player_id2}'s role? (tank, damage, support, open): ",
-            msg_type="question",
-        )).lower()
-
-        if valid_exit_condition(given_role2):
-            return
-
-        player2_data = service.account_attributes(player_id2)
-        player2_role = player2_data.get('ranks', {}).get(given_role2, {})
-
-        if player2_role is None:
-            print(cli_msg(
-                text=f'No rank data for role "{given_role}"',
-                msg_type='error',
-            ))
-            return
-
-        player2_division = player2_role.get('division', {})
-        player2_tier = player2_role.get('tier', {})
-
-        p2_rank = service.rank_title(player2_division, player2_tier)
-        print(cli_msg(
-            text=f"Selected rank: {short_format_rank(player2_role)} | {p2_rank}"
-        ))
-        print(service.rank_comparison(p1_rank, p2_rank))
+        print(cli_msg(text=service.rank_comparison(p1_rank, p2_rank)))
     except AccountDoesntExist as e:
         print(cli_msg(text=str(e), msg_type='error'))
-    except (ValueError, KeyError, AttributeError) as e:
+    except (RankDivisionError, ValueError, KeyError, AttributeError) as e:
         print(cli_msg(text=str(e), msg_type='error'))
 
-# --------------------------------------------------------------------------- #
+# -------------------------------------------------------------------------------------------------------------------- #
 
 def valid_exit_condition(string: str) -> bool:
+    """
+    Tells the caller if the user has requested to quit (through manual or lack of input).
+
+    :param string: The given input argument which is tested against two exit conditions.
+    :returns: ``True`` if user requested to leave (includes empty/no input), ``False`` otherwise.
+    """
     if is_quit(string):
         print(QUIT_MSG)
         return True
@@ -505,7 +420,36 @@ def valid_exit_condition(string: str) -> bool:
     return False
 
 
+def _prompt_for_player_id(service, menu_len) -> str | None:
+    """
+    Boilerplate stuff to stop spamming the same I/O code.
+
+    :param service: Instance of the class AccountService in account_service.py.
+    :param menu_len: User requested (from settings.ini) menu length, used to display data.
+    :returns: A ``string`` player ID resolved from user input, or ``None`` if it meets an exit condition.
+    """
+    player_id = read_userinput(prompt=cli_msg(text=SELECT_ACCOUNT, msg_type='question'))
+    if valid_exit_condition(player_id):
+        return None
+
+    player_id = _wide_search(player_id, service, menu_len)
+    if valid_exit_condition(player_id):
+        return None
+
+    return player_id
+
+
 def _wide_search(substring, service, menu_len) -> str | None:
+    """
+    Attempts to find an account match with the given ``substring`` to use for further command operations. If multiple
+    substrings match (multiple results) the user can pick which to use using an integer. If it's a single result it
+    will automatically select that and return that account as a string (full tag). Otherwise, it will return ``None``.
+
+    :param substring: The input given to try and match an existing account with. Example: "am" to match "Amanda#1235".
+    :param service: Instance of the class AccountService in account_service.py.
+    :param menu_len: User requested (from settings.ini) menu length, used to display data.
+    :return: A new ``string`` with the full account tag after selection/match, or ``None`` if no match at all.
+    """
     wide_search_results = service.wide_search(substring)
 
     if not wide_search_results:
@@ -519,11 +463,11 @@ def _wide_search(substring, service, menu_len) -> str | None:
         bottom_text='End of Options',
         menu_contents=wide_search_results,
         list_type='num',
-        menu_len=menu_len
+        menu_len=menu_len,
     )
 
     selection = read_userinput(
-        prompt=cli_msg(text='Choose an account: ', msg_type='question'),
+        prompt=cli_msg(text='Choose an account: ', msg_type='question')
     )
 
     if not selection:
@@ -546,9 +490,45 @@ def _wide_search(substring, service, menu_len) -> str | None:
     except IncorrectValue as e:
         print(cli_msg(text=str(e), msg_type='error'))
 
+def _get_player_rank(service, menu_len):
+    """
+    Prompts for a player id and role, validates both, and returns (role_data, rank)
+    for that player, or None if the user chose to exit early.
+
+    Raises:
+        AccountDoesntExist: if the entered player id doesn't resolve to an account.
+    """
+    player_id = _prompt_for_player_id(service, menu_len)
+    if player_id is None:
+        return None
+
+    if not _account_exists(player_id, service):
+        raise AccountDoesntExist(player_id=player_id)
+
+    given_role = read_userinput(cli_msg(
+        text=f"{player_id}'s role? (tank, damage, support, open): ",
+        msg_type="question",
+    )).lower()
+
+    if valid_exit_condition(given_role):
+        return None
+
+    player_data = service.account_attributes(player_id)
+    player_role = player_data.get('ranks', {}).get(given_role, {})
+
+    if not player_role:
+        print(cli_msg(text=f'No rank data for role "{given_role}"', msg_type='error'))
+        return None
+
+    division = player_role.get('division', {})
+    tier = player_role.get('tier', {})
+    rank = service.rank_title(division, tier)
+    print(cli_msg(text=f"Selected rank: {short_format_rank(player_role)} | {rank}"))
+
+    return player_role, rank
+
 def _account_exists(player_id, service) -> bool:
     in_database = service.account_exists(player_id)
-
     if not in_database:
         return False
     return True

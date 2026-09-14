@@ -62,7 +62,7 @@ class AppConfig:
 
 
 def is_valid_format(s: str) -> bool:
-    if s == "all" or "ask":
+    if s in ('all', 'ask'):
         return True
 
     parts = s.split("+")
@@ -81,7 +81,7 @@ def is_valid_format(s: str) -> bool:
         return False
 
     # "all" has to be standalone.
-    if ["all", "ask"] in parts:
+    if 'all' in parts and len(parts) > 1:
         return False
 
     return True
@@ -246,6 +246,7 @@ def load_config() -> configparser.ConfigParser:
 
 
 def init() -> AppConfig:
+    """ Attempts to apply the settings.ini values into variables the program uses at startup. """
     config = load_config()
 
     verify_settings(config)
@@ -261,7 +262,7 @@ def init() -> AppConfig:
     hide_emails = _general.getboolean('hide_emails')
     hide_passwords = _general.getboolean('hide_passwords')
     credential_get = _general.get('credential_get')
-    delete_warning_prompt = _general.get('delete_warning_prompt')
+    delete_warning_prompt = _general.getboolean('delete_warning_prompt')
 
     try:
         current_season, season_title, latest_patch_date = gather_data()

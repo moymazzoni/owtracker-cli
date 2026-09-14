@@ -17,7 +17,7 @@ class AccountService:
     def __init__(self, database_file: str):
         self._account = AccountDatabase(database_file)
 
-    def account_attributes(self, player_id) -> list[str]:
+    def account_attributes(self, player_id) -> dict[str, str]:
         try:
             attr_content = self._account.get_attributes(player_id)
 

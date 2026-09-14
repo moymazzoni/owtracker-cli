@@ -25,6 +25,7 @@ class Errors:
     MISSING_KEY = 'Missing required key: {key}'
     INVALID_TYPE = 'Incorrect type, expected: {expected}'
     INCORRECT_GIVEN = 'Incorrect given value used: "{value}"'
+    INVALID_RANK_OR_DIVISION = 'Invalid rank/division given.'
 
 
 class AppError(Exception):
@@ -124,5 +125,5 @@ class NoOptionsInMenuError(AppError):
     template = Errors.EMPTY_OPTIONS
 
 class RankDivisionError(AppError):
-    """Raised when an account's division in the database"""
-
+    """Raised when an account's division or tier is weird in the database"""
+    template = Errors.INVALID_RANK_OR_DIVISION

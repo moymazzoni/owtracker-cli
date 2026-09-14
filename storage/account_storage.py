@@ -12,16 +12,18 @@ class Tier(Enum):
     silver = 1
     gold = 2
     platinum = 3
-    diamond = 4
-    master = 5
-    grandmaster = 6
-    ultimate = 7
+    emerald = 4
+    diamond = 5
+    master = 6
+    grandmaster = 7
+    ultimate = 8
 
 WIDE_THRESHOLD = {
     Tier.bronze: 5,
     Tier.silver: 5,
     Tier.gold: 5,
     Tier.platinum: 5,
+    Tier.emerald: 5,
     Tier.diamond: 5,
     Tier.master: 4,
     Tier.grandmaster: 3,
@@ -227,7 +229,6 @@ class AccountDatabase:
             except Exception:
                 accounts_failed_fetch.append(account)
                 continue  # skip this account.
-
             fetched_season = client.get_known_last_season(account)
 
             if fetched_season == current_season:

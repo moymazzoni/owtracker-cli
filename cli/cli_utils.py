@@ -64,7 +64,7 @@ def _spinner(
 
 
 def cli_msg(text,
-            msg_type: str = 'Programmer left this blank...',
+            msg_type: str = '',
             quit_option: str = str(QUIT_OPTIONS[1]).upper()
     ) -> str:
     """
