@@ -226,22 +226,24 @@ class AccountDatabase:
         for account in account_list:
             try:
                 updated_ranks = client.get_player_info(account)['ranks']
+                fetched_season = client.get_known_last_season(account)
             except Exception:
+                # covers a failed/slow player-info fetch AND a failed last-season lookup - account got no useable data,
+                # so skip it without touching anything else already saved.
                 accounts_failed_fetch.append(account)
-                continue  # skip this account.
-            fetched_season = client.get_known_last_season(account)
+                continue
+
+            changed = False
 
             if fetched_season == current_season:
                 # up-to-date ranks of current season.
                 if data['accounts'][account]['ranks'] != updated_ranks:
                     data['accounts'][account]['ranks'] = updated_ranks
-                    accounts_updated.append(account)
+                    changed = True
             else:
-                # outdated season. the fetch reflects the player's last active
-                # season. keep rank_history for that season up to date with
-                # the freshest known data, and clear the current-season slot.
+                # outdated season. the fetch reflects the player's last active season. keep rank_history for that
+                # season up to date with the freshest known data, and clear the current-season slot.
                 season_key = str(fetched_season)
-                changed = False
 
                 if data['accounts'][account]['rank_history'].get(
                         season_key) != updated_ranks:
@@ -253,10 +255,11 @@ class AccountDatabase:
                     data['accounts'][account]['ranks'] = empty_ranks
                     changed = True
 
-                if changed:
-                    accounts_updated.append(account)
-
-        self._save(data)
+            if changed:
+                accounts_updated.append(account)
+                # Save as each account lands rather than at the end in case an account fetch error happens (so no time
+                # is wasted).
+                self._save(data)
 
         return (
             f'Accounts updated/changed: '
