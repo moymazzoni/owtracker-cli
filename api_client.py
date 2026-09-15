@@ -84,19 +84,13 @@ class OverfastClient:
         Returns the season number of the account's last competitive season
         played (must have been placed).
         """
-        player_id = player_id.replace('#', '-')
-        resp = requests.get(
-            f"{self.BASE_URL}/players/{player_id}")
-        resp.raise_for_status()
-        data = resp.json()
+        normalized_id = player_id.replace('#', '-')
+        data = self._get(f'/players/{normalized_id}')
         return data["summary"]["competitive"]["pc"]["season"]
 
     def get_known_last_season_ranks(self, player_id: str) -> dict:
-        player_id = player_id.replace('#', '-')
-        resp = requests.get(
-            f"{self.BASE_URL}/players/{player_id}")
-        resp.raise_for_status()
-        data = resp.json()
+        normalized_id = player_id.replace('#', '-')
+        data = self._get(f'/players/{normalized_id}')
         ranks = data["summary"]["competitive"]["pc"]
 
         return {
