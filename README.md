@@ -55,7 +55,7 @@ cd owtracker-cli
 uv sync
 
 # or with plain pip:
-pip install -r <(python -c "import tomllib;print('\n'.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))")
+pip install "beautifulsoup4>=4.15.0" "pynput>=1.8.2" "pyperclip>=1.11.0" "requests>=2.34.2" "urllib3>=2.7.0"
 ```
 
 Then just run it:
