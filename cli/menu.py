@@ -32,7 +32,8 @@ FORCE_QUIT: str = cli_msg(text='Returning to main menu...', msg_type='warning')
 QUIT_MSG: str = cli_msg(text='User has requested to quit.', msg_type='warning')
 
 #! ADD A MENU TO MODIFY RANKS AND RANK_HISTORY (WRITE "DIAMOND 1" AND IT CONVERTS IT).
-NONEDITABLE_FIELDS: frozenset[str] = frozenset({'ranks', 'rank_history', 'imported_at', 'last_updated_at'})
+NONEDITABLE_FIELDS: frozenset[str] =\
+    frozenset({'ranks', 'rank_history', 'ranks_season', 'imported_at', 'last_updated_at'})
 
 def menu_loop(config) -> None:
     service = AccountService(config.db_directory)

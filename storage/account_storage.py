@@ -152,7 +152,6 @@ class AccountDatabase:
 
         return credential_info
 
-
     def add_account(self, player_id, current_season):
         data = self._load()
 
@@ -167,7 +166,7 @@ class AccountDatabase:
                 prev_ranks = client.get_known_last_season_ranks(player_id)
 
                 data['accounts'][player_id]['rank_history'] = {
-                   str(prev_season) : prev_ranks
+                    str(prev_season): prev_ranks
                 }
                 data['accounts'][player_id]['ranks'] = {
                     "tank": None,
@@ -175,6 +174,10 @@ class AccountDatabase:
                     "support": None,
                     "open": None,
                 }
+
+            # Tracks which season the `ranks` field currently represents, so a later update can tell stale data apart
+            # from current data even when the fresh fetch alone wouldn't reveal a mismatch.
+            data['accounts'][player_id]['ranks_season'] = current_season
 
             self._save(data)
             return True
@@ -233,39 +236,52 @@ class AccountDatabase:
                 accounts_failed_fetch.append(account)
                 continue
 
+            acct = data['accounts'][account]
             changed = False
+
+            # stored ranks may belong to an older season than the current one, even if this fetch matches the current
+            # season (e.g. placements happened in a new season before Update Ranks ever ran). `fetched_season` only
+            # describes the new data, so check the STORED ranks' season and archive them if stale.
+            stored_season = acct.get('ranks_season')
+            if (stored_season is not None) and (stored_season != current_season) and (acct['ranks'] != empty_ranks):
+                stored_key = str(stored_season)
+                if acct['rank_history'].get(stored_key) != acct['ranks']:
+                    acct['rank_history'][stored_key] = acct['ranks']
+                acct['ranks'] = empty_ranks
+                changed = True
 
             if fetched_season == current_season:
                 # up-to-date ranks of current season.
-                if data['accounts'][account]['ranks'] != updated_ranks:
-                    data['accounts'][account]['ranks'] = updated_ranks
+                if acct['ranks'] != updated_ranks:
+                    acct['ranks'] = updated_ranks
                     changed = True
             else:
                 # outdated season. the fetch reflects the player's last active season. keep rank_history for that
                 # season up to date with the freshest known data, and clear the current-season slot.
                 season_key = str(fetched_season)
 
-                if data['accounts'][account]['rank_history'].get(
-                        season_key) != updated_ranks:
-                    data['accounts'][account]['rank_history'][
-                        season_key] = updated_ranks
+                if acct['rank_history'].get(season_key) != updated_ranks:
+                    acct['rank_history'][season_key] = updated_ranks
                     changed = True
 
-                if data['accounts'][account]['ranks'] != empty_ranks:
-                    data['accounts'][account]['ranks'] = empty_ranks
+                if acct['ranks'] != empty_ranks:
+                    acct['ranks'] = empty_ranks
                     changed = True
+
+            if acct.get('ranks_season') != current_season:
+                acct['ranks_season'] = current_season
+                changed = True
 
             if changed:
                 accounts_updated.append(account)
-                # Save as each account lands rather than at the end in case an account fetch error happens (so no time
-                # is wasted).
+                # save as each account lands rather than at the end.
                 self._save(data)
 
         return (
             f'Accounts updated/changed: '
             f'{", ".join(accounts_updated) or None}.',
             f'Accounts not fetched properly'
-            f'{' (private, banned, or not a real account): ' 
+            f'{' (private, banned, or not a real account): '
             if accounts_failed_fetch else ': '}'
             f'{", ".join(accounts_failed_fetch) or None}.',
         )

@@ -1,13 +1,12 @@
 # OWTracker CLI
 
-A small command-line tool for keeping track of Overwatch accounts — logins,
-competitive ranks, and rank history — for people who have multiple accounts 
-and want some place convenient to store them all. Think of it as an account 
-spreadsheet+ with additional features.
+A small command-line interface (CLI) tool for keeping track of Overwatch accounts.
+Account logins, current ranks, rank history, and more are tracked here. Easy-to-use 
+commands to help the user manage multiple accounts and keep track of their ranks in
+order to quickly start queueing with friends.
 
-Ranks and season data come live from the community-run
-[OverFast API](https://github.com/TeKrop/overfast-api); everything else
-(logins, notes) is stored locally on your own machine.
+Ranks and season data come live from the community-run [OverFast API](https://github.com/TeKrop/overfast-api); 
+everything else (logins, notes) is stored locally on your own machine.
 
 ## Features
 
@@ -67,9 +66,21 @@ uv run main.py
 python main.py
 ```
 
-You don't need to manually create any config files — on first launch,
-OWTracker writes a default `settings.ini` for you automatically, and will
-offer to create an empty `storage/accounts.json` the first time it looks
+### Running it from anywhere (optional)
+
+If you'd rather just type `owtracker` from any terminal instead of `cd`-ing
+into the folder every time, run the included setup script once:
+
+```bash
+./install.sh
+```
+
+This installs a small `owtracker` command to `~/.local/bin` that points back at this exact clone, so `git pull`-ing 
+updates works. If `~/.local/bin` isn't already on your PATH, the script tells you the one line to add for your shell.
+
+You don't need to manually create any config files. On the program's first
+launch, OWTracker writes a default `settings.ini` for you automatically, and 
+will offer to create an empty `storage/accounts.json` the first time it looks
 for your account database. `settings.example.ini` and
 `storage/accounts.example.json` are there if you'd rather copy and
 hand-edit them before your first run. You can safely delete them.
@@ -97,6 +108,16 @@ text** on your own disk. I do not have access to your data at all.
 manager export: don't commit it, don't sync it to a public place, and 
 don't share it around. The included `.gitignore` already keeps it 
 (and your personal `settings.ini`) out of git.
+
+## Limitations
+
+As mentioned in a footnote earlier, the account rank storage system fetches from OverFast API which caches its data, 
+so some data on a fetch right after a rankup might not occur on time. In that case, wait a while (10+ minutes) and 
+attempt the command again (**Update Ranks**).
+
+Current functionality of the copy credentials (**Get Account**) waits for the user to specifically press and release 
+"Ctrl + V" for pasting the requested/queued data — meaning the user must let go of "Ctrl" in order to queue the next 
+item successfully.
 
 ## Credits
 
