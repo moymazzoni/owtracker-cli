@@ -278,12 +278,9 @@ class AccountDatabase:
                 self._save(data)
 
         return (
-            f'Accounts updated/changed: '
-            f'{", ".join(accounts_updated) or None}.',
-            f'Accounts not fetched properly'
-            f'{' (private, banned, or not a real account): '
-            if accounts_failed_fetch else ': '}'
-            f'{", ".join(accounts_failed_fetch) or None}.',
+            f'Accounts updated/changed: {", ".join(accounts_updated) or None}.',
+            f'Accounts not fetched properly{' (private profile, fetch error, banned, or not a real account): '
+            if accounts_failed_fetch else ': '}{", ".join(accounts_failed_fetch) or None}.',
         )
 
     @staticmethod
